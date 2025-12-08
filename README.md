@@ -27,10 +27,6 @@ A Chrome extension that adds folder organization to Google's NotebookLM. Stop sc
 5. Select the folder containing these extension files
 6. Navigate to [NotebookLM](https://notebooklm.google.com) and start organizing!
 
-### Option 2: Chrome Web Store
-
-*(Coming soon)*
-
 ## Usage
 
 Once installed, you'll see new controls appear in NotebookLM:
@@ -45,7 +41,30 @@ Once installed, you'll see new controls appear in NotebookLM:
 
 ## Screenshots
 
-*(Add screenshots here)*
+**Sources Panel**
+
+Add fodlers, expand/collapse all folders, download/uplaod file strucutre, show/hide web research section, clear fodler tree
+
+<img width="252" height="170" alt="image" src="https://github.com/user-attachments/assets/d3b36a39-abf6-4b6c-a81d-2688fbca07e4" />
+
+Move a folder up/down, change folder color, add subfolder, edit folder name, delete folder.
+
+<img width="432" height="129" alt="image" src="https://github.com/user-attachments/assets/b6c79d4b-90f3-42b2-a3ff-d267413aca4f" />
+
+Change item location, eject from folder, Pin to top
+
+<img width="438" height="130" alt="image" src="https://github.com/user-attachments/assets/5d18b90c-1a71-4846-a035-a2a629baa72f" />
+
+**Studio Panel**
+
+Search titles and content of notes
+
+<img width="471" height="121" alt="image" src="https://github.com/user-attachments/assets/26ca3554-402c-4b2b-9635-0fda91cd5a22" />
+
+Add new fodler, expand/collapse fodlers, download/upload fodler strucutre, toggle generation buttons, restart folders
+
+<img width="466" height="115" alt="image" src="https://github.com/user-attachments/assets/de54379b-1ac1-4d73-8d31-62034d6be58a" />
+
 
 ## Privacy
 
@@ -61,10 +80,13 @@ See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for details.
 - Each notebook has independent folders (use Export/Import to share structures)
 - Search index builds as you view notes — unviewed notes won't appear in deep search
 - Chrome may show a developer mode warning for unpacked extensions
+- Underling content in a note is not persistent, I think this is a Google issue.
 
 ## Contributing
 
 Found a bug or have a feature request? Open an issue or submit a PR.
+
+@ccgee for a light theme contrast bug.
 
 ## Author
 
@@ -75,5 +97,6 @@ Found a bug or have a feature request? Open an issue or submit a PR.
 MIT License — feel free to modify and share.
 
 ---
+
 
 *Built because NotebookLM needed folders. You're welcome.*
