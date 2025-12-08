@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NotebookLM Pro Tree",
-  "version": "14.2",
+  "version": "14.3",
   "description": "Tree-structured folder organization for NotebookLM. Organize sources and studio notes into nested folders with deep content search, pinning, and color-coding. Each notebook has its own independent folder structure.",
   "author": "Benju66",
   "permissions": ["activeTab", "scripting", "storage"],

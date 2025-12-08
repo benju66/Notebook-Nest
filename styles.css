@@ -1,22 +1,52 @@
-/* --- GLOBAL THEME --- */
-html, body {
-    background-color: #37383B !important;
+/* --- THEME VARIABLES --- */
+:root {
+    /* DEFAULT (Light Mode) */
+    /* This matches NotebookLM's standard light theme */
+    --plugin-bg: transparent;
+    --plugin-bg-hover: #F1F3F4;
+    --plugin-bg-input: #FFFFFF;
+    --plugin-bg-pinned: transparent;
+    --plugin-text: #3c4043; /* Native Dark Gray Text */
+    --plugin-text-secondary: #5f6368;
+    --plugin-border: transparent;
+    --plugin-border-light: #E8EAED;
+    --plugin-accent: #1a73e8; /* Google Blue */
+    --plugin-icon-color: #5f6368; /* Dark Gray Icons */
+    --plugin-accent-hover: rgba(26, 115, 232, 0.08);
 }
 
-/* --- HIDDEN ITEMS (in folders) --- */
+/* DARK MODE OVERRIDE */
+/* This triggers ONLY when NotebookLM adds the .dark-theme class */
+.dark-theme {
+    --plugin-bg: transparent;
+    --plugin-bg-hover: #454649;
+    --plugin-bg-input: #202124;
+    --plugin-bg-pinned: #28292a;
+    --plugin-text: #e8eaed; /* Native Light Text */
+    --plugin-text-secondary: #9aa0a6;
+    --plugin-border: #5f6368;
+    --plugin-border-light: #3c4043;
+    --plugin-accent: #8ab4f8; /* Light Blue Accent */
+    --plugin-icon-color: #8ab4f8; /* Light Blue Icons */
+    --plugin-accent-hover: rgba(138, 180, 248, 0.1);
+}
+
+/* --- HIDDEN ITEMS --- */
 .plugin-hidden-native {
     display: none !important;
     opacity: 0 !important;
     pointer-events: none !important;
 }
 
-/* --- CONTAINERS --- */
+/* --- MAIN CONTAINER --- */
 .plugin-container {
     display: block;
     margin-bottom: 12px;
     font-family: 'Google Sans', Roboto, sans-serif;
-    border-bottom: 1px solid #5f6368;
+    border-bottom: 1px solid var(--plugin-border-light);
     padding-bottom: 8px;
+    background-color: var(--plugin-bg); 
+    color: var(--plugin-text);
 }
 
 .plugin-controls-area {
@@ -29,7 +59,7 @@ html, body {
 /* --- TOOLBAR BUTTONS --- */
 .plugin-btn {
     background-color: transparent; 
-    color: #8ab4f8; 
+    color: var(--plugin-icon-color);
     border: 1px solid transparent;
     padding: 4px; 
     border-radius: 4px;
@@ -43,43 +73,36 @@ html, body {
 }
 
 .plugin-btn:hover { 
-    background-color: rgba(138, 180, 248, 0.1); 
-    color: #aecbfa;
+    background-color: var(--plugin-bg-hover); 
+    color: var(--plugin-text);
 }
 
-.plugin-btn.secondary {
-    color: #e8eaed;
-}
-.plugin-btn.secondary:hover { 
-    background-color: rgba(232, 234, 237, 0.1);
-    color: #fff;
-}
+.plugin-btn.secondary { color: var(--plugin-icon-color); }
+.plugin-btn.toggle-off { opacity: 0.5; }
 
-/* Toggle button "off" state - dimmed appearance */
-.plugin-btn.toggle-off {
-    opacity: 0.5;
-}
-.plugin-btn.toggle-off:hover {
-    opacity: 0.8;
-}
-
-/* --- SEARCH --- */
+/* --- SEARCH INPUT --- */
 .plugin-search-area input {
     width: 100%;
-    padding: 6px 8px;
-    border-radius: 4px;
-    border: 1px solid #5f6368;
-    background: #202124;
-    color: #e8eaed;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--plugin-border-light);
+    background: var(--plugin-bg-input);
+    color: var(--plugin-text);
     outline: none;
     margin-bottom: 8px;
     box-sizing: border-box;
-    font-size: 13px;
+    font-size: 14px;
+    transition: box-shadow 0.2s;
+}
+
+.plugin-search-area input:focus {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    border-color: transparent;
 }
 
 /* --- TREE NODES --- */
 .plugin-tree-node {
-    border-left: 1px solid #454649;
+    border-left: 1px solid var(--plugin-border-light);
     margin-left: 8px;
 }
 
@@ -95,20 +118,20 @@ html, body {
     padding: 6px 8px;
     border-radius: 4px;
     cursor: pointer;
-    color: #e8eaed;
+    color: var(--plugin-text);
     font-size: 14px;
     user-select: none;
     transition: background 0.1s;
 }
 
 .plugin-folder-header:hover {
-    background-color: #454649;
+    background-color: var(--plugin-bg-hover); 
 }
 
 .plugin-folder-header .arrow {
     font-size: 10px;
     margin-right: 6px;
-    color: #9aa0a6;
+    color: var(--plugin-text-secondary);
     transition: transform 0.2s;
     display: inline-block;
     width: 12px;
@@ -119,8 +142,19 @@ html, body {
     transform: rotate(90deg);
 }
 
-.folder-icon { margin-right: 6px; }
-.folder-name { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.folder-icon { 
+    margin-right: 6px; 
+    color: var(--plugin-accent);
+}
+
+.folder-name { 
+    flex-grow: 1; 
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis;
+    font-weight: 500;
+    color: var(--plugin-text);
+}
 
 /* --- FOLDER ACTIONS --- */
 .folder-actions {
@@ -138,36 +172,32 @@ html, body {
     width: 24px;
     height: 24px;
     border-radius: 3px;
-    color: #9aa0a6;
+    color: var(--plugin-text-secondary);
     cursor: pointer;
 }
 
 .action-icon:hover {
-    background: rgba(138, 180, 248, 0.2);
-    color: #8ab4f8;
+    background: var(--plugin-bg-hover);
+    color: var(--plugin-text);
 }
 
 /* --- PINNED SECTION --- */
 .plugin-pinned-section {
-    border-bottom: 1px solid #5f6368;
-    padding-bottom: 8px;
+    border-bottom: 1px solid var(--plugin-border-light);
+    padding-bottom: 4px;
     margin-bottom: 8px;
-    background: #28292a;
-    border-radius: 8px;
-    overflow: hidden;
+    background: var(--plugin-bg-pinned); 
+    border-radius: 0;
 }
 
 .plugin-pinned-section .plugin-proxy-item {
-    background: #28292a;
-    border-bottom: 1px solid #3c4043;
-}
-
-.plugin-pinned-section .plugin-proxy-item:last-child {
+    background: transparent;
     border-bottom: none;
 }
 
 .is-pinned-proxy {
-    background-color: rgba(138, 180, 248, 0.08) !important; 
+    background-color: var(--plugin-accent-hover) !important; 
+    border-radius: 4px;
 }
 
 /* --- CHILDREN CONTAINER --- */
@@ -178,22 +208,22 @@ html, body {
     display: block;
 }
 
-/* --- PROXY ITEMS (FIXED) --- */
+/* --- PROXY ITEMS --- */
 .plugin-proxy-item {
-    /* REMOVED !important TO ALLOW JS FILTERING */
     display: flex; 
     align-items: center;
-    padding: 3px 6px 3px 16px; 
-    border-bottom: 1px solid #3c4043;
+    padding: 4px 6px 4px 16px; 
+    border-bottom: 1px solid transparent;
     cursor: pointer;
-    color: #e8eaed;
+    color: var(--plugin-text);
     font-size: 14px;
-    background: #37383B;
-    min-height: 30px; 
+    background: transparent;
+    min-height: 32px; 
+    border-radius: 4px;
 }
 
 .plugin-proxy-item:hover {
-    background-color: #454649;
+    background-color: var(--plugin-bg-hover);
 }
 
 .proxy-content {
@@ -211,21 +241,26 @@ html, body {
     transition: opacity 0.2s;
 }
 
-.plugin-proxy-item:hover .proxy-actions {
-    opacity: 1;
-}
+.plugin-proxy-item:hover .proxy-actions { opacity: 1; }
 
 .proxy-icon {
     margin-right: 10px;
     display: flex;
     align-items: center;
-    color: #8ab4f8;
+    color: var(--plugin-icon-color);
+}
+
+/* Ensure SVG icons inherit the correct color */
+.proxy-icon svg, .folder-icon svg, .plugin-btn svg, .action-icon svg { 
+    fill: currentColor; 
+    filter: none;
 }
 
 .proxy-text {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--plugin-text);
 }
 
 /* --- MOVE/PIN TRIGGER --- */
@@ -239,33 +274,22 @@ html, body {
     width: 26px;
     height: 26px;
     border-radius: 50%;
-    color: #9aa0a6; 
+    color: var(--plugin-text-secondary); 
     transition: background 0.2s, color 0.2s, opacity 0.2s;
 }
 
 .plugin-move-trigger:hover, .pin-btn:hover {
-    background-color: rgba(138, 180, 248, 0.1); 
-    color: #8ab4f8; 
-}
-
-/* --- VISIBILITY RULES --- */
-.plugin-detected-row:hover .plugin-move-trigger,
-.plugin-proxy-item:hover .plugin-move-trigger {
-    opacity: 1;
-}
-
-.plugin-move-trigger.active {
-    opacity: 1;
-    color: #8ab4f8;
+    background-color: var(--plugin-bg-hover); 
+    color: var(--plugin-text); 
 }
 
 /* --- DROPDOWN MENU --- */
 .plugin-dropdown {
     position: absolute;
-    background: #2d2e30;
-    border: 1px solid #5f6368;
+    background: var(--plugin-bg-input);
+    border: 1px solid var(--plugin-border-light);
     border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     z-index: 10001; 
     max-height: 300px;
     overflow-y: auto;
@@ -276,12 +300,12 @@ html, body {
 .plugin-dropdown-item {
     padding: 8px 12px;
     font-size: 13px;
-    color: #e8eaed;
+    color: var(--plugin-text);
     cursor: pointer;
-    border-bottom: 1px solid #3c4043;
+    border-bottom: 1px solid var(--plugin-border-light);
     display: flex;
     align-items: center;
 }
 .plugin-dropdown-item:hover {
-    background-color: #454649;
+    background-color: var(--plugin-bg-hover);
 }
