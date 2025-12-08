@@ -725,7 +725,7 @@ function buildFolderNode(folder, allFolders, context) {
     const node = document.createElement('div');
     node.className = `plugin-tree-node ${folder.isOpen ? 'open' : ''}`;
     node.id = `node-${folder.id}`;
-    const style = folder.color ? `border-left: 3px solid ${folder.color};` : '';
+    const style = folder.color ? `border-left: 4px solid ${folder.color};` : '';
 
     const header = document.createElement('div');
     header.className = 'plugin-folder-header';

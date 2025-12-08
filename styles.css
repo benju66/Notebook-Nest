@@ -1,34 +1,34 @@
 /* --- THEME VARIABLES --- */
 :root {
-    /* DEFAULT (Light Mode) */
-    /* This matches NotebookLM's standard light theme */
+    /* 1. DEFAULT (Assumes Light Mode) */
+    /* This matches NotebookLM's native light theme */
     --plugin-bg: transparent;
-    --plugin-bg-hover: #F1F3F4;
+    --plugin-bg-hover: rgba(0, 0, 0, 0.04); /* Subtle gray hover for white bg */
     --plugin-bg-input: #FFFFFF;
     --plugin-bg-pinned: transparent;
     --plugin-text: #3c4043; /* Native Dark Gray Text */
     --plugin-text-secondary: #5f6368;
     --plugin-border: transparent;
     --plugin-border-light: #E8EAED;
-    --plugin-accent: #1a73e8; /* Google Blue */
-    --plugin-icon-color: #5f6368; /* Dark Gray Icons */
-    --plugin-accent-hover: rgba(26, 115, 232, 0.08);
+    --plugin-accent: #1a73e8; /* Google Darker Blue for Light Mode */
+    --plugin-icon-color: #5f6368; /* Dark Gray Icons for Toolbar */
+    --plugin-accent-hover: rgba(26, 115, 232, 0.1);
 }
 
-/* DARK MODE OVERRIDE */
-/* This triggers ONLY when NotebookLM adds the .dark-theme class */
-.dark-theme {
+/* 2. DARK MODE OVERRIDE */
+/* This activates ONLY when the app adds the .dark-theme class */
+body.dark-theme {
     --plugin-bg: transparent;
-    --plugin-bg-hover: #454649;
+    --plugin-bg-hover: rgba(255, 255, 255, 0.08); /* Subtle white hover for dark bg */
     --plugin-bg-input: #202124;
     --plugin-bg-pinned: #28292a;
     --plugin-text: #e8eaed; /* Native Light Text */
     --plugin-text-secondary: #9aa0a6;
     --plugin-border: #5f6368;
     --plugin-border-light: #3c4043;
-    --plugin-accent: #8ab4f8; /* Light Blue Accent */
-    --plugin-icon-color: #8ab4f8; /* Light Blue Icons */
-    --plugin-accent-hover: rgba(138, 180, 248, 0.1);
+    --plugin-accent: #8ab4f8; /* Google Light Blue for Dark Mode */
+    --plugin-icon-color: #8ab4f8; /* Light Blue Icons for Toolbar */
+    --plugin-accent-hover: rgba(138, 180, 248, 0.15);
 }
 
 /* --- HIDDEN ITEMS --- */
@@ -46,7 +46,9 @@
     border-bottom: 1px solid var(--plugin-border-light);
     padding-bottom: 8px;
     background-color: var(--plugin-bg); 
-    color: var(--plugin-text);
+    
+    /* Force inheritance so it matches the parent app container exactly */
+    color: inherit; 
 }
 
 .plugin-controls-area {
@@ -87,7 +89,7 @@
     border-radius: 8px;
     border: 1px solid var(--plugin-border-light);
     background: var(--plugin-bg-input);
-    color: var(--plugin-text);
+    color: inherit; /* Inherit from container */
     outline: none;
     margin-bottom: 8px;
     box-sizing: border-box;
@@ -118,7 +120,7 @@
     padding: 6px 8px;
     border-radius: 4px;
     cursor: pointer;
-    color: var(--plugin-text);
+    color: inherit; /* Matches parent text */
     font-size: 14px;
     user-select: none;
     transition: background 0.1s;
@@ -142,9 +144,18 @@
     transform: rotate(90deg);
 }
 
+/* Folder Icon Handling */
 .folder-icon { 
     margin-right: 6px; 
-    color: var(--plugin-accent);
+    /* No explicit color here, we let the JS inline style control it for custom colors */
+}
+
+/* TRICK: In Light Mode, the default JS color (#8ab4f8) is too light.
+   This filter darkens it slightly ONLY in light mode, while keeping 
+   custom colors (like Red) working relatively well.
+*/
+:root:not(.dark-theme) .folder-icon {
+    filter: brightness(0.8) saturate(1.2);
 }
 
 .folder-name { 
@@ -153,7 +164,6 @@
     overflow: hidden; 
     text-overflow: ellipsis;
     font-weight: 500;
-    color: var(--plugin-text);
 }
 
 /* --- FOLDER ACTIONS --- */
@@ -215,7 +225,7 @@
     padding: 4px 6px 4px 16px; 
     border-bottom: 1px solid transparent;
     cursor: pointer;
-    color: var(--plugin-text);
+    color: inherit; /* Matches parent text */
     font-size: 14px;
     background: transparent;
     min-height: 32px; 
@@ -250,7 +260,7 @@
     color: var(--plugin-icon-color);
 }
 
-/* Ensure SVG icons inherit the correct color */
+/* Ensures icons fill with the correct computed color */
 .proxy-icon svg, .folder-icon svg, .plugin-btn svg, .action-icon svg { 
     fill: currentColor; 
     filter: none;
@@ -260,7 +270,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--plugin-text);
+    /* Removed fixed color to allow inheritance */
 }
 
 /* --- MOVE/PIN TRIGGER --- */
@@ -300,7 +310,7 @@
 .plugin-dropdown-item {
     padding: 8px 12px;
     font-size: 13px;
-    color: var(--plugin-text);
+    color: inherit;
     cursor: pointer;
     border-bottom: 1px solid var(--plugin-border-light);
     display: flex;
