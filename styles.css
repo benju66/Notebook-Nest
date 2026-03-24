@@ -12,6 +12,8 @@
     --plugin-accent: #1a73e8;
     --plugin-icon-color: #5f6368;
     --plugin-accent-hover: rgba(26, 115, 232, 0.1);
+    --plugin-eject-border: #d93025;
+    --plugin-eject-bg: rgba(217, 48, 37, 0.1);
 }
 
 /* 2. DARK MODE OVERRIDE */
@@ -27,6 +29,8 @@ body.dark-theme {
     --plugin-accent: #8ab4f8;
     --plugin-icon-color: #8ab4f8;
     --plugin-accent-hover: rgba(138, 180, 248, 0.15);
+    --plugin-eject-border: #f28b82;
+    --plugin-eject-bg: rgba(242, 139, 130, 0.18);
 }
 
 /* --- HIDDEN ITEMS --- */
@@ -1075,4 +1079,135 @@ body.plugin-focus-mode textarea {
     background: var(--plugin-bg-hover);
     width: 28px;
     height: 28px;
+}
+
+/* --- DRAG AND DROP --- */
+.plugin-drag-handle {
+    cursor: grab;
+    color: var(--plugin-text-secondary);
+    opacity: 0.3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 100%;
+    margin-right: 4px;
+    flex-shrink: 0;
+    transition: opacity 0.2s;
+    user-select: none;
+}
+.plugin-drag-handle:hover {
+    opacity: 1;
+}
+.plugin-drag-handle:active {
+    cursor: grabbing;
+}
+
+/* Visual grip for native rows (drag still works from whole row via pointer capture) */
+.plugin-detected-row .plugin-native-drag-handle {
+    flex-shrink: 0;
+    align-self: center;
+    position: relative;
+    z-index: 3;
+}
+
+/*
+ * NotebookLM uses a full-row transparent button (e.g. .source-stretched-button) that
+ * stacks above the row. Pointer-driven drag uses capture + threshold; during drag we
+ * disable the overlay so hit-testing reaches folder headers.
+ */
+body.plugin-drag-active .plugin-detected-row button.source-stretched-button,
+body.plugin-drag-active .plugin-detected-row button.artifact-stretched-button {
+    pointer-events: none;
+}
+
+/* Custom pointer-drag ghost (native list → folder) */
+.plugin-custom-drag-ghost {
+    position: fixed;
+    z-index: 2147483646;
+    pointer-events: none;
+    max-width: min(280px, 90vw);
+    padding: 8px 12px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    background: var(--plugin-bg-input);
+    color: var(--plugin-text);
+    border: 1px solid var(--plugin-border-light);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+}
+
+.plugin-detected-row[data-plugin-native-drag="1"] {
+    cursor: grab;
+    touch-action: pan-y;
+}
+
+body.plugin-drag-active .plugin-detected-row[data-plugin-native-drag="1"] {
+    cursor: grabbing;
+}
+
+body.plugin-drag-active .plugin-folder-header *,
+body.plugin-drag-active .plugin-eject-zone * {
+    pointer-events: none;
+}
+
+.plugin-proxy-item[draggable="true"],
+.plugin-folder-header[draggable="true"] {
+    cursor: grab;
+}
+
+.plugin-proxy-item[draggable="true"]:active,
+.plugin-folder-header[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+.is-dragging {
+    opacity: 0.5;
+    background-color: var(--plugin-bg-hover);
+}
+
+.plugin-drag-over {
+    background-color: var(--plugin-accent-hover) !important;
+    outline: 2px dashed var(--plugin-accent);
+    outline-offset: -2px;
+}
+
+.plugin-eject-stack {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+body.plugin-drag-active .plugin-eject-stack {
+    display: flex;
+}
+
+.plugin-eject-stack .plugin-eject-zone {
+    margin: 0;
+}
+
+.plugin-eject-zone {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    border: 2px dashed var(--plugin-text-secondary);
+    border-radius: 6px;
+    color: var(--plugin-text-secondary);
+    font-size: 13px;
+    font-style: italic;
+    background: transparent;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+body.plugin-drag-active .plugin-eject-zone {
+    display: flex;
+}
+.plugin-eject-zone.plugin-drag-over {
+    border-color: var(--plugin-eject-border);
+    background-color: var(--plugin-eject-bg) !important;
+    color: var(--plugin-eject-border);
 }

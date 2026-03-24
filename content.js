@@ -87,6 +87,8 @@ const DEBOUNCE_SEARCH_MS = 300;
 const URL_CHECK_INTERVAL_MS = 1000;
 const INIT_DELAY_MS = 500;
 const DOM_SETTLE_DELAY_MS = 50;
+/** Movement past this (px) turns a native-row pointer gesture into a drag vs a click. */
+const NATIVE_POINTER_DRAG_THRESHOLD_PX = 12;
 const MAX_INDEX_CONTENT_LENGTH = 20000;
 const MAX_INDEX_SIZE_BYTES = 2 * 1024 * 1024; // 2MB limit for search index
 const FUZZY_MATCH_THRESHOLD = 0.65;
@@ -190,6 +192,17 @@ let mainObserver = null;
 let healthCheckInterval = null;
 let lastHealthStatus = null;
 let isProcessingItems = false; // Race condition guard for processItems
+
+/** @type {{ type: 'item'|'folder', context: string, id: string } | null} */
+let currentDragData = null;
+let isDragging = false;
+let dragHandleClicked = false;
+let globalDragMouseupBound = false;
+
+/** @type {null | { mode: 'pending'|'active', row: Element, text: string, context: string, startX: number, startY: number, pointerId: number, ghost?: HTMLElement, lastX: number, lastY: number }} */
+let nativePointerSession = null;
+let nativePointerDragSafetyInstalled = false;
+let nativePointerHighlightRaf = null;
 
 // --- GRACEFUL DEGRADATION SYSTEM ---
 const featureStatus = {
@@ -976,6 +989,17 @@ function startUrlWatcher() {
 
 function startApp() {
     try {
+        if (!globalDragMouseupBound) {
+            globalDragMouseupBound = true;
+            document.addEventListener('mouseup', () => { dragHandleClicked = false; });
+        }
+        if (!nativePointerDragSafetyInstalled) {
+            nativePointerDragSafetyInstalled = true;
+            window.addEventListener('blur', () => endNativePointerDragSession(false));
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') endNativePointerDragSession(false);
+            });
+        }
         startObserver();
         setTimeout(safeRunOrganizer, INIT_DELAY_MS);
         healthCheckInterval = setInterval(checkSelectorHealth, HEALTH_CHECK_INTERVAL_MS);
@@ -1957,6 +1981,7 @@ function startObserver() {
         }
         
         mainObserver = new MutationObserver((mutations) => {
+            if (isDragging) return;
             try {
                 autoCollapseSourceGuide();
 
@@ -2101,6 +2126,30 @@ function getRowContainer(element) {
     } catch (e) {
         return element;
     }
+}
+
+function wirePluginEjectStack(stack, context) {
+    const bindZone = (zone, mode) => {
+        if (!zone) return;
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            zone.classList.add('plugin-drag-over');
+        });
+        zone.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget && zone.contains(e.relatedTarget)) return;
+            zone.classList.remove('plugin-drag-over');
+        });
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.remove('plugin-drag-over');
+            if (!currentDragData || currentDragData.context !== context) return;
+            performEjectDrop(context, mode, { type: currentDragData.type, id: currentDragData.id });
+        });
+    };
+    bindZone(stack.querySelector('.plugin-eject-outdent'), 'outdent');
+    bindZone(stack.querySelector('.plugin-eject-root'), 'root');
 }
 
 function injectContainer(anchorEl, context) {
@@ -2456,6 +2505,16 @@ function injectContainer(anchorEl, context) {
         treeMount.id = `tree-mount-${context}`;
         container.appendChild(treeMount);
 
+        const ejectStack = document.createElement('div');
+        ejectStack.className = 'plugin-eject-stack';
+        ejectStack.innerHTML = `
+            <div class="plugin-eject-zone plugin-eject-outdent">${ICONS.smallUp}<span>Up one level (same row as parent folder)</span></div>
+            <div class="plugin-eject-zone plugin-eject-root">${ICONS.eject}<span>Top level / not in any folder</span></div>
+        `;
+        wirePluginEjectStack(ejectStack, context);
+
+        container.appendChild(ejectStack);
+
         if (context === 'source') {
             wrapper.insertBefore(container, anchorEl);
         } else if (context === 'studio') {
@@ -2474,6 +2533,373 @@ function injectContainer(anchorEl, context) {
     } catch (e) {
         console.error('[NotebookLM Tree] Inject container error:', e);
     }
+}
+
+/**
+ * True if ancestorId is a strict ancestor of descendantFolderId (invalid to drop folder into its own subtree).
+ */
+function isDescendantFolder(ancestorId, descendantFolderId, context) {
+    const folders = appState[context].folders || {};
+    let currentId = folders[descendantFolderId]?.parentId || null;
+    while (currentId) {
+        if (currentId === ancestorId) return true;
+        const f = folders[currentId];
+        currentId = f && f.parentId ? f.parentId : null;
+    }
+    return false;
+}
+
+function commitItemDropOnFolder(context, title, folderId) {
+    const folder = appState[context].folders[folderId];
+    if (!folder) return false;
+    appState[context].mappings[title] = folderId;
+    folder.isOpen = true;
+    saveState();
+    renderTree(context);
+    setTimeout(() => safeProcessItems(context), DOM_SETTLE_DELAY_MS);
+    return true;
+}
+
+/**
+ * @param {'root'|'outdent'} mode — root: uncategorized (items) or top-level folder; outdent: sibling of current parent (folder) or parent folder (item)
+ */
+function performEjectDrop(context, mode, dragData) {
+    const { type, id } = dragData;
+    try {
+        if (type === 'item') {
+            if (mode === 'root') {
+                delete appState[context].mappings[id];
+            } else {
+                const folderId = appState[context].mappings[id];
+                if (!folderId) return;
+                const f = appState[context].folders[folderId];
+                if (!f || !f.parentId) {
+                    showToast('Already in a top-level folder. Use the lower zone to leave folders entirely.');
+                    return;
+                }
+                appState[context].mappings[id] = f.parentId;
+            }
+        } else if (type === 'folder') {
+            const f = appState[context].folders[id];
+            if (!f) return;
+            if (mode === 'root') {
+                f.parentId = null;
+                const others = Object.values(appState[context].folders).filter(x => !x.parentId && x.id !== f.id);
+                const maxOrder = others.length > 0 ? Math.max(...others.map(r => r.order || 0)) : -1;
+                f.order = maxOrder + 1;
+            } else {
+                if (!f.parentId) {
+                    showToast('Folder is already at top level');
+                    return;
+                }
+                const parent = appState[context].folders[f.parentId];
+                f.parentId = parent ? (parent.parentId || null) : null;
+                const np = f.parentId;
+                const siblings = Object.values(appState[context].folders).filter(x => (x.parentId || null) === (np || null) && x.id !== f.id);
+                f.order = siblings.length > 0 ? Math.max(...siblings.map(s => s.order || 0)) + 1 : 0;
+            }
+        }
+        saveState();
+        renderTree(context);
+        setTimeout(() => safeProcessItems(context), DOM_SETTLE_DELAY_MS);
+    } catch (e) {
+        console.debug('[NotebookLM Tree] Eject drop failed:', e);
+    }
+}
+
+function commitItemEjectMapping(context, title) {
+    performEjectDrop(context, 'root', { type: 'item', id: title });
+}
+
+function findNativePointerDropTarget(clientX, clientY, context) {
+    const treeMount = document.getElementById(`tree-mount-${context}`);
+    const pluginRoot = document.getElementById(`plugin-${context}-root`);
+    if (!treeMount || !pluginRoot) return null;
+
+    let els;
+    try {
+        els = document.elementsFromPoint(clientX, clientY);
+    } catch (e) {
+        return null;
+    }
+    if (!els || !els.length) return null;
+
+    for (const el of els) {
+        if (el.classList && el.classList.contains('plugin-custom-drag-ghost')) continue;
+
+        const outdentHit = el.closest && el.closest('.plugin-eject-outdent');
+        if (outdentHit && pluginRoot.contains(outdentHit)) {
+            return { kind: 'eject-outdent' };
+        }
+        const rootHit = el.closest && el.closest('.plugin-eject-root');
+        if (rootHit && pluginRoot.contains(rootHit)) {
+            return { kind: 'eject-root' };
+        }
+        if (el.classList && el.classList.contains('plugin-folder-header') && treeMount.contains(el)) {
+            const node = el.closest('.plugin-tree-node');
+            if (!node || !node.id || !node.id.startsWith('node-')) continue;
+            const folderId = node.id.slice('node-'.length);
+            if (appState[context].folders[folderId]) return { kind: 'folder', folderId };
+        }
+    }
+    return null;
+}
+
+function clearCustomDragHighlights(context) {
+    const root = document.getElementById(`plugin-${context}-root`);
+    if (!root) return;
+    root.querySelectorAll('.plugin-folder-header.plugin-drag-over, .plugin-eject-zone.plugin-drag-over').forEach(el => {
+        el.classList.remove('plugin-drag-over');
+    });
+}
+
+function applyNativePointerDropHighlight(clientX, clientY, context) {
+    clearCustomDragHighlights(context);
+    const t = findNativePointerDropTarget(clientX, clientY, context);
+    if (!t) return;
+    if (t.kind === 'eject-outdent') {
+        document.querySelector(`#plugin-${context}-root .plugin-eject-outdent`)?.classList.add('plugin-drag-over');
+    } else if (t.kind === 'eject-root') {
+        document.querySelector(`#plugin-${context}-root .plugin-eject-root`)?.classList.add('plugin-drag-over');
+    } else {
+        const node = document.getElementById(`node-${t.folderId}`);
+        const h = node && node.querySelector(':scope > .plugin-folder-header');
+        if (h) h.classList.add('plugin-drag-over');
+    }
+}
+
+function scheduleNativePointerHighlight(clientX, clientY, context) {
+    if (nativePointerHighlightRaf) cancelAnimationFrame(nativePointerHighlightRaf);
+    nativePointerHighlightRaf = requestAnimationFrame(() => {
+        nativePointerHighlightRaf = null;
+        applyNativePointerDropHighlight(clientX, clientY, context);
+    });
+}
+
+function suppressNativeRowClickAfterDrag(row) {
+    const stop = (e) => {
+        if (!row.contains(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+    };
+    window.addEventListener('click', stop, true);
+    setTimeout(() => window.removeEventListener('click', stop, true), 400);
+}
+
+function shouldIgnoreNativePointerDragStart(target) {
+    if (!target || !target.closest) return true;
+    if (target.closest('mat-checkbox')) return true;
+    if (target.closest('.plugin-move-trigger')) return true;
+    if (target.closest('.plugin-item-check')) return true;
+    if (target.closest('.plugin-popout-btn')) return true;
+    return false;
+}
+
+function endNativePointerDragSession(commitDrop) {
+    const s = nativePointerSession;
+    if (!s) return;
+
+    const wasActive = s.mode === 'active';
+
+    nativePointerSession = null;
+    if (nativePointerHighlightRaf) {
+        cancelAnimationFrame(nativePointerHighlightRaf);
+        nativePointerHighlightRaf = null;
+    }
+
+    try {
+        s.row.releasePointerCapture(s.pointerId);
+    } catch (e) { /* ignore */ }
+
+    if (s.mode === 'pending') {
+        return;
+    }
+
+    isDragging = false;
+    document.body.classList.remove('plugin-drag-active');
+    s.row.classList.remove('is-dragging');
+    if (s.ghost && s.ghost.parentNode) s.ghost.remove();
+
+    clearCustomDragHighlights(s.context);
+
+    if (commitDrop) {
+        const t = findNativePointerDropTarget(s.lastX, s.lastY, s.context);
+        if (t?.kind === 'folder') {
+            commitItemDropOnFolder(s.context, s.text, t.folderId);
+        } else if (t?.kind === 'eject-outdent') {
+            performEjectDrop(s.context, 'outdent', { type: 'item', id: s.text });
+        } else if (t?.kind === 'eject-root') {
+            performEjectDrop(s.context, 'root', { type: 'item', id: s.text });
+        }
+    }
+
+    if (wasActive) suppressNativeRowClickAfterDrag(s.row);
+}
+
+function teardownNativeRowDrag(nativeRow) {
+    try {
+        if (nativePointerSession && nativePointerSession.row === nativeRow) {
+            endNativePointerDragSession(false);
+        }
+        if (nativeRow._pluginNativeDragAbort) {
+            nativeRow._pluginNativeDragAbort.abort();
+            nativeRow._pluginNativeDragAbort = null;
+        }
+        const h = nativeRow.querySelector('.plugin-native-drag-handle');
+        if (h) {
+            h.removeAttribute('draggable');
+            h.remove();
+        }
+        nativeRow.removeAttribute('draggable');
+        delete nativeRow.dataset.pluginNativeDrag;
+        delete nativeRow.dataset.pluginNativeDragTitle;
+    } catch (e) { /* ignore */ }
+}
+
+function setupNativeRowDrag(nativeRow, text, context) {
+    teardownNativeRowDrag(nativeRow);
+
+    nativeRow.dataset.pluginNativeDrag = '1';
+    nativeRow.dataset.pluginNativeDragTitle = text;
+
+    const dragHint = document.createElement('div');
+    dragHint.className = 'plugin-drag-handle plugin-native-drag-handle';
+    dragHint.innerHTML = '⋮⋮';
+    dragHint.title = 'Drag into folder';
+
+    const moveTr = nativeRow.querySelector('.plugin-move-trigger');
+    if (moveTr && moveTr.parentElement) {
+        moveTr.parentElement.insertBefore(dragHint, moveTr);
+    } else if (context === 'source') {
+        const moreBtn = nativeRow.querySelector('button[aria-label="More"]');
+        if (moreBtn && moreBtn.parentElement) {
+            moreBtn.parentElement.insertBefore(dragHint, moreBtn);
+        } else {
+            nativeRow.insertBefore(dragHint, nativeRow.firstChild);
+        }
+    } else {
+        const actions = nativeRow.querySelector('.artifact-item-button');
+        if (actions) {
+            actions.insertBefore(dragHint, actions.firstChild);
+        } else {
+            nativeRow.insertBefore(dragHint, nativeRow.firstChild);
+        }
+    }
+
+    const ac = new AbortController();
+    nativeRow._pluginNativeDragAbort = ac;
+    const sig = ac.signal;
+
+    const onPointerDown = (e) => {
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        if (shouldIgnoreNativePointerDragStart(e.target)) return;
+
+        if (nativePointerSession && nativePointerSession.row !== nativeRow) {
+            endNativePointerDragSession(false);
+        }
+
+        nativePointerSession = {
+            mode: 'pending',
+            row: nativeRow,
+            text,
+            context,
+            startX: e.clientX,
+            startY: e.clientY,
+            pointerId: e.pointerId,
+            lastX: e.clientX,
+            lastY: e.clientY
+        };
+
+        try {
+            nativeRow.setPointerCapture(e.pointerId);
+        } catch (err) { /* ignore */ }
+    };
+
+    const onPointerMove = (e) => {
+        const s = nativePointerSession;
+        if (!s || s.row !== nativeRow) return;
+
+        s.lastX = e.clientX;
+        s.lastY = e.clientY;
+
+        if (s.mode === 'pending') {
+            const dx = e.clientX - s.startX;
+            const dy = e.clientY - s.startY;
+            if (dx * dx + dy * dy < NATIVE_POINTER_DRAG_THRESHOLD_PX * NATIVE_POINTER_DRAG_THRESHOLD_PX) return;
+
+            s.mode = 'active';
+            isDragging = true;
+            document.body.classList.add('plugin-drag-active');
+            nativeRow.classList.add('is-dragging');
+
+            const ghost = document.createElement('div');
+            ghost.className = 'plugin-custom-drag-ghost';
+            ghost.textContent = text.length > 80 ? `${text.slice(0, 77)}…` : text;
+            document.body.appendChild(ghost);
+            s.ghost = ghost;
+
+            const gx = e.clientX + 12;
+            const gy = e.clientY + 12;
+            ghost.style.left = `${gx}px`;
+            ghost.style.top = `${gy}px`;
+
+            scheduleNativePointerHighlight(e.clientX, e.clientY, context);
+            e.preventDefault();
+            return;
+        }
+
+        if (s.mode === 'active' && s.ghost) {
+            s.ghost.style.left = `${e.clientX + 12}px`;
+            s.ghost.style.top = `${e.clientY + 12}px`;
+            scheduleNativePointerHighlight(e.clientX, e.clientY, context);
+            e.preventDefault();
+        }
+    };
+
+    const onPointerUp = (e) => {
+        const s = nativePointerSession;
+        if (!s || s.row !== nativeRow || s.pointerId !== e.pointerId) return;
+
+        if (s.mode === 'pending') {
+            nativePointerSession = null;
+            try {
+                nativeRow.releasePointerCapture(e.pointerId);
+            } catch (err) { /* ignore */ }
+            return;
+        }
+
+        s.lastX = e.clientX;
+        s.lastY = e.clientY;
+        endNativePointerDragSession(true);
+        e.preventDefault();
+    };
+
+    const onPointerCancel = (e) => {
+        const s = nativePointerSession;
+        if (!s || s.row !== nativeRow || s.pointerId !== e.pointerId) return;
+        endNativePointerDragSession(false);
+    };
+
+    dragHint.addEventListener('click', (e) => e.stopPropagation(), { capture: true, signal: sig });
+
+    nativeRow.addEventListener('pointerdown', onPointerDown, { capture: true, signal: sig });
+    nativeRow.addEventListener('pointermove', onPointerMove, { signal: sig });
+    nativeRow.addEventListener('pointerup', onPointerUp, { signal: sig });
+    nativeRow.addEventListener('pointercancel', onPointerCancel, { signal: sig });
+}
+
+/** Enable drag-from-default-list into folders; tear down when the row is hidden (in a folder). */
+function syncNativeRowDrag(nativeRow, text, context, enabled) {
+    if (!enabled) {
+        teardownNativeRowDrag(nativeRow);
+        return;
+    }
+    if (nativeRow.dataset.pluginNativeDrag === '1' && nativeRow.dataset.pluginNativeDragTitle === text) {
+        return;
+    }
+    teardownNativeRowDrag(nativeRow);
+    setupNativeRowDrag(nativeRow, text, context);
 }
 
 function renderTree(context) {
@@ -2523,8 +2949,90 @@ function buildFolderNode(folder, allFolders, context) {
     
     const folderNameEl = header.querySelector('.folder-name');
     if (folderNameEl) folderNameEl.textContent = folder.name;
+
+    const headerHandle = document.createElement('div');
+    headerHandle.className = 'plugin-drag-handle';
+    headerHandle.innerHTML = '⋮⋮';
+    headerHandle.title = 'Drag to move folder';
+    headerHandle.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        dragHandleClicked = true;
+    });
+    headerHandle.addEventListener('click', (e) => e.stopPropagation());
+    header.insertBefore(headerHandle, header.firstChild);
+
+    header.draggable = true;
+
+    header.addEventListener('dragstart', (e) => {
+        if (e.target.closest('.folder-actions')) {
+            e.preventDefault();
+            return;
+        }
+        if (!dragHandleClicked) {
+            e.preventDefault();
+            return;
+        }
+        isDragging = true;
+        document.body.classList.add('plugin-drag-active');
+        currentDragData = { type: 'folder', context, id: folder.id };
+        header.classList.add('is-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', folder.id);
+        e.stopPropagation();
+    });
+
+    header.addEventListener('dragend', () => {
+        isDragging = false;
+        dragHandleClicked = false;
+        document.body.classList.remove('plugin-drag-active');
+        header.classList.remove('is-dragging');
+        document.querySelectorAll('.plugin-drag-over').forEach(el => el.classList.remove('plugin-drag-over'));
+    });
+
+    header.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!currentDragData || currentDragData.context !== context) return;
+        if (currentDragData.type === 'folder' && currentDragData.id === folder.id) return;
+
+        e.dataTransfer.dropEffect = 'move';
+        header.classList.add('plugin-drag-over');
+    });
+
+    header.addEventListener('dragleave', (e) => {
+        if (e.relatedTarget && header.contains(e.relatedTarget)) return;
+        header.classList.remove('plugin-drag-over');
+    });
+
+    header.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        header.classList.remove('plugin-drag-over');
+
+        if (!currentDragData || currentDragData.context !== context) return;
+
+        if (currentDragData.type === 'item') {
+            commitItemDropOnFolder(context, currentDragData.id, folder.id);
+            return;
+        } else if (currentDragData.type === 'folder') {
+            if (isDescendantFolder(currentDragData.id, folder.id, context)) {
+                showToast('Cannot move a folder into its own sub-folder');
+                return;
+            }
+            const fid = currentDragData.id;
+            appState[context].folders[fid].parentId = folder.id;
+            const siblings = Object.values(appState[context].folders).filter(x => x.parentId === folder.id && x.id !== fid);
+            const newOrder = siblings.length > 0 ? Math.max(...siblings.map(s => s.order || 0)) + 1 : 0;
+            appState[context].folders[fid].order = newOrder;
+            folder.isOpen = true;
+        }
+
+        saveState();
+        renderTree(context);
+        setTimeout(() => safeProcessItems(context), DOM_SETTLE_DELAY_MS);
+    });
     
     header.onclick = (e) => {
+        if (e.target.closest('.plugin-drag-handle')) return;
         if (e.target.closest('.folder-actions')) return;
         folder.isOpen = !folder.isOpen;
         saveState();
@@ -2735,6 +3243,9 @@ function processItems(context) {
             } else {
                 nativeRow.classList.remove('plugin-hidden-native');
             }
+
+            const inDefaultList = !(folderId && appState[context].folders[folderId]);
+            syncNativeRowDrag(nativeRow, text, context, inDefaultList);
         } catch (e) {
             console.debug('[NotebookLM Tree] Process item error:', e.message);
         }
@@ -2897,6 +3408,18 @@ function createProxyItem(nativeRow, text, context, isPinnedView) {
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'proxy-content';
+    if (!isPinnedView) {
+        const dragHandle = document.createElement('div');
+        dragHandle.className = 'plugin-drag-handle';
+        dragHandle.innerHTML = '⋮⋮';
+        dragHandle.title = 'Drag to move';
+        dragHandle.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            dragHandleClicked = true;
+        });
+        dragHandle.addEventListener('click', (e) => e.stopPropagation());
+        contentDiv.appendChild(dragHandle);
+    }
     const iconSpan = document.createElement('span');
     iconSpan.className = 'proxy-icon';
     if (iconElement) iconSpan.appendChild(iconElement);
@@ -2954,9 +3477,33 @@ function createProxyItem(nativeRow, text, context, isPinnedView) {
     proxy.appendChild(actionsDiv);
     
     if (!isPinnedView) injectMoveTrigger(proxy, text, context);
+
+    proxy.draggable = !isPinnedView;
+
+    proxy.addEventListener('dragstart', (e) => {
+        if (!dragHandleClicked || isPinnedView) {
+            e.preventDefault();
+            return;
+        }
+        isDragging = true;
+        document.body.classList.add('plugin-drag-active');
+        currentDragData = { type: 'item', context, id: text };
+        proxy.classList.add('is-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', text);
+    });
+
+    proxy.addEventListener('dragend', () => {
+        isDragging = false;
+        dragHandleClicked = false;
+        document.body.classList.remove('plugin-drag-active');
+        proxy.classList.remove('is-dragging');
+        document.querySelectorAll('.plugin-drag-over').forEach(el => el.classList.remove('plugin-drag-over'));
+    });
     
     proxy.onclick = (e) => {
         // Ignore clicks on action buttons
+        if (e.target.closest('.plugin-drag-handle')) return;
         if (e.target.closest('.plugin-move-trigger') || e.target.closest('.pin-btn') || e.target.closest('.plugin-item-check') || e.target.closest('.plugin-popout-btn')) return;
 
         // Create a full bubbling MouseEvent
