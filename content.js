@@ -2914,16 +2914,23 @@ function createProxyItem(nativeRow, text, context, isPinnedView) {
     if (!isPinnedView) injectMoveTrigger(proxy, text, context);
     
     proxy.onclick = (e) => {
+        // Ignore clicks on action buttons
         if (e.target.closest('.plugin-move-trigger') || e.target.closest('.pin-btn') || e.target.closest('.plugin-item-check') || e.target.closest('.plugin-popout-btn')) return;
-        
+
+        // Create a full bubbling MouseEvent
+        const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+
         if (context === 'source') {
-            const titleEl = safeQuery(nativeRow, activeSelectors.sourceTitle);
-            if (titleEl) safeClick(titleEl);
-            else safeClick(nativeRow);
+            nativeRow.dispatchEvent(clickEvent);
         } else {
-            const titleEl = safeQuery(nativeRow, activeSelectors.studioTitle);
-            if (titleEl) safeClick(titleEl);
-            else safeClick(nativeRow);
+            const nativeBtn = nativeRow.querySelector('button.artifact-stretched-button, .artifact-button-content button, button.artifact-item-button');
+
+            if (nativeBtn) {
+                nativeBtn.dispatchEvent(clickEvent);
+            } else {
+                // Ultimate fallback
+                nativeRow.dispatchEvent(clickEvent);
+            }
         }
     };
     
