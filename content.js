@@ -1092,24 +1092,18 @@ function toggleFolderItems(folderId, context) {
             for (const row of nativeRows) {
                  const titleEl = safeQuery(row, activeSelectors.sourceTitle);
                  if (titleEl && safeGetText(titleEl) === title) {
-                     const matCheckbox = row.querySelector('mat-checkbox');
                      const input = row.querySelector('mat-checkbox input');
-                     if (matCheckbox && input) {
-                         targets.push({ matCheckbox, input });
-                     }
+                     if (input) targets.push(input);
                      break;
                  }
             }
         });
 
-        const anyUnchecked = targets.some(t => !t.input.checked && t.input.getAttribute('aria-checked') !== 'true');
+        const anyUnchecked = targets.some(inp => !inp.checked && inp.getAttribute('aria-checked') !== 'true');
 
-        targets.forEach(t => {
-            const isChecked = t.input.checked || t.input.getAttribute('aria-checked') === 'true';
-            if (isChecked !== anyUnchecked) {
-                const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-                t.matCheckbox.dispatchEvent(clickEvent);
-            }
+        targets.forEach(inp => {
+            const isChecked = inp.checked || inp.getAttribute('aria-checked') === 'true';
+            if (isChecked !== anyUnchecked) inp.click();
         });
 
     } catch (e) {
@@ -2676,9 +2670,16 @@ function scheduleNativePointerHighlight(clientX, clientY, context) {
     });
 }
 
+/** After a native-row drag, only suppress the stray click on the full-row "open" overlay — not More, checkbox, or plugin controls. */
 function suppressNativeRowClickAfterDrag(row) {
     const stop = (e) => {
         if (!row.contains(e.target)) return;
+        const t = e.target;
+        const openOverlay = t.closest && (
+            t.closest('button.source-stretched-button') ||
+            t.closest('button.artifact-stretched-button')
+        );
+        if (!openOverlay) return;
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
@@ -2693,12 +2694,21 @@ function shouldIgnoreNativePointerDragStart(target) {
     if (target.closest('.plugin-move-trigger')) return true;
     if (target.closest('.plugin-item-check')) return true;
     if (target.closest('.plugin-popout-btn')) return true;
+    if (target.closest('button[aria-label="More"]')) return true;
+    if (target.closest('.mat-mdc-menu-trigger')) return true;
+    if (target.closest('.source-item-more-button')) return true;
+    if (target.closest('mat-menu')) return true;
     return false;
 }
 
 function endNativePointerDragSession(commitDrop) {
     const s = nativePointerSession;
     if (!s) return;
+
+    const row = s.row;
+    if (typeof row._pluginRemoveGesture === 'function') {
+        row._pluginRemoveGesture();
+    }
 
     const wasActive = s.mode === 'active';
 
@@ -2739,6 +2749,10 @@ function endNativePointerDragSession(commitDrop) {
 
 function teardownNativeRowDrag(nativeRow) {
     try {
+        if (typeof nativeRow._pluginRemoveGesture === 'function') {
+            nativeRow._pluginRemoveGesture();
+            delete nativeRow._pluginRemoveGesture;
+        }
         if (nativePointerSession && nativePointerSession.row === nativeRow) {
             endNativePointerDragSession(false);
         }
@@ -2746,11 +2760,7 @@ function teardownNativeRowDrag(nativeRow) {
             nativeRow._pluginNativeDragAbort.abort();
             nativeRow._pluginNativeDragAbort = null;
         }
-        const h = nativeRow.querySelector('.plugin-native-drag-handle');
-        if (h) {
-            h.removeAttribute('draggable');
-            h.remove();
-        }
+        nativeRow.querySelector('.plugin-native-drag-handle')?.remove();
         nativeRow.removeAttribute('draggable');
         delete nativeRow.dataset.pluginNativeDrag;
         delete nativeRow.dataset.pluginNativeDragTitle;
@@ -2763,33 +2773,18 @@ function setupNativeRowDrag(nativeRow, text, context) {
     nativeRow.dataset.pluginNativeDrag = '1';
     nativeRow.dataset.pluginNativeDragTitle = text;
 
-    const dragHint = document.createElement('div');
-    dragHint.className = 'plugin-drag-handle plugin-native-drag-handle';
-    dragHint.innerHTML = '⋮⋮';
-    dragHint.title = 'Drag into folder';
-
-    const moveTr = nativeRow.querySelector('.plugin-move-trigger');
-    if (moveTr && moveTr.parentElement) {
-        moveTr.parentElement.insertBefore(dragHint, moveTr);
-    } else if (context === 'source') {
-        const moreBtn = nativeRow.querySelector('button[aria-label="More"]');
-        if (moreBtn && moreBtn.parentElement) {
-            moreBtn.parentElement.insertBefore(dragHint, moreBtn);
-        } else {
-            nativeRow.insertBefore(dragHint, nativeRow.firstChild);
-        }
-    } else {
-        const actions = nativeRow.querySelector('.artifact-item-button');
-        if (actions) {
-            actions.insertBefore(dragHint, actions.firstChild);
-        } else {
-            nativeRow.insertBefore(dragHint, nativeRow.firstChild);
-        }
-    }
-
     const ac = new AbortController();
     nativeRow._pluginNativeDragAbort = ac;
     const sig = ac.signal;
+
+    let gestureAbort = null;
+    const removeGestureListeners = () => {
+        if (gestureAbort) {
+            gestureAbort.abort();
+            gestureAbort = null;
+        }
+    };
+    nativeRow._pluginRemoveGesture = removeGestureListeners;
 
     const onPointerDown = (e) => {
         if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -2798,6 +2793,10 @@ function setupNativeRowDrag(nativeRow, text, context) {
         if (nativePointerSession && nativePointerSession.row !== nativeRow) {
             endNativePointerDragSession(false);
         }
+
+        removeGestureListeners();
+        gestureAbort = new AbortController();
+        const gsig = gestureAbort.signal;
 
         nativePointerSession = {
             mode: 'pending',
@@ -2811,82 +2810,81 @@ function setupNativeRowDrag(nativeRow, text, context) {
             lastY: e.clientY
         };
 
-        try {
-            nativeRow.setPointerCapture(e.pointerId);
-        } catch (err) { /* ignore */ }
+        const winMove = (ev) => {
+            const s = nativePointerSession;
+            if (!s || s.row !== nativeRow || ev.pointerId !== s.pointerId) return;
+
+            s.lastX = ev.clientX;
+            s.lastY = ev.clientY;
+
+            if (s.mode === 'pending') {
+                const dx = ev.clientX - s.startX;
+                const dy = ev.clientY - s.startY;
+                if (dx * dx + dy * dy < NATIVE_POINTER_DRAG_THRESHOLD_PX * NATIVE_POINTER_DRAG_THRESHOLD_PX) return;
+
+                s.mode = 'active';
+                isDragging = true;
+                document.body.classList.add('plugin-drag-active');
+                nativeRow.classList.add('is-dragging');
+                try {
+                    nativeRow.setPointerCapture(ev.pointerId);
+                } catch (err) { /* ignore */ }
+
+                const ghost = document.createElement('div');
+                ghost.className = 'plugin-custom-drag-ghost';
+                ghost.textContent = text.length > 80 ? `${text.slice(0, 77)}…` : text;
+                document.body.appendChild(ghost);
+                s.ghost = ghost;
+                ghost.style.left = `${ev.clientX + 12}px`;
+                ghost.style.top = `${ev.clientY + 12}px`;
+                scheduleNativePointerHighlight(ev.clientX, ev.clientY, context);
+                ev.preventDefault();
+                return;
+            }
+
+            if (s.mode === 'active' && s.ghost) {
+                s.ghost.style.left = `${ev.clientX + 12}px`;
+                s.ghost.style.top = `${ev.clientY + 12}px`;
+                scheduleNativePointerHighlight(ev.clientX, ev.clientY, context);
+                ev.preventDefault();
+            }
+        };
+
+        const winUp = (ev) => {
+            if (!nativePointerSession || nativePointerSession.row !== nativeRow || ev.pointerId !== nativePointerSession.pointerId) {
+                removeGestureListeners();
+                return;
+            }
+            const s = nativePointerSession;
+            if (s.mode === 'pending') {
+                nativePointerSession = null;
+                removeGestureListeners();
+                return;
+            }
+            s.lastX = ev.clientX;
+            s.lastY = ev.clientY;
+            endNativePointerDragSession(true);
+            ev.preventDefault();
+            removeGestureListeners();
+        };
+
+        const winCancel = (ev) => {
+            if (!nativePointerSession || ev.pointerId !== nativePointerSession.pointerId) {
+                removeGestureListeners();
+                return;
+            }
+            if (nativePointerSession.row === nativeRow) {
+                endNativePointerDragSession(false);
+            }
+            removeGestureListeners();
+        };
+
+        window.addEventListener('pointermove', winMove, { signal: gsig, passive: false });
+        window.addEventListener('pointerup', winUp, { signal: gsig });
+        window.addEventListener('pointercancel', winCancel, { signal: gsig });
     };
-
-    const onPointerMove = (e) => {
-        const s = nativePointerSession;
-        if (!s || s.row !== nativeRow) return;
-
-        s.lastX = e.clientX;
-        s.lastY = e.clientY;
-
-        if (s.mode === 'pending') {
-            const dx = e.clientX - s.startX;
-            const dy = e.clientY - s.startY;
-            if (dx * dx + dy * dy < NATIVE_POINTER_DRAG_THRESHOLD_PX * NATIVE_POINTER_DRAG_THRESHOLD_PX) return;
-
-            s.mode = 'active';
-            isDragging = true;
-            document.body.classList.add('plugin-drag-active');
-            nativeRow.classList.add('is-dragging');
-
-            const ghost = document.createElement('div');
-            ghost.className = 'plugin-custom-drag-ghost';
-            ghost.textContent = text.length > 80 ? `${text.slice(0, 77)}…` : text;
-            document.body.appendChild(ghost);
-            s.ghost = ghost;
-
-            const gx = e.clientX + 12;
-            const gy = e.clientY + 12;
-            ghost.style.left = `${gx}px`;
-            ghost.style.top = `${gy}px`;
-
-            scheduleNativePointerHighlight(e.clientX, e.clientY, context);
-            e.preventDefault();
-            return;
-        }
-
-        if (s.mode === 'active' && s.ghost) {
-            s.ghost.style.left = `${e.clientX + 12}px`;
-            s.ghost.style.top = `${e.clientY + 12}px`;
-            scheduleNativePointerHighlight(e.clientX, e.clientY, context);
-            e.preventDefault();
-        }
-    };
-
-    const onPointerUp = (e) => {
-        const s = nativePointerSession;
-        if (!s || s.row !== nativeRow || s.pointerId !== e.pointerId) return;
-
-        if (s.mode === 'pending') {
-            nativePointerSession = null;
-            try {
-                nativeRow.releasePointerCapture(e.pointerId);
-            } catch (err) { /* ignore */ }
-            return;
-        }
-
-        s.lastX = e.clientX;
-        s.lastY = e.clientY;
-        endNativePointerDragSession(true);
-        e.preventDefault();
-    };
-
-    const onPointerCancel = (e) => {
-        const s = nativePointerSession;
-        if (!s || s.row !== nativeRow || s.pointerId !== e.pointerId) return;
-        endNativePointerDragSession(false);
-    };
-
-    dragHint.addEventListener('click', (e) => e.stopPropagation(), { capture: true, signal: sig });
 
     nativeRow.addEventListener('pointerdown', onPointerDown, { capture: true, signal: sig });
-    nativeRow.addEventListener('pointermove', onPointerMove, { signal: sig });
-    nativeRow.addEventListener('pointerup', onPointerUp, { signal: sig });
-    nativeRow.addEventListener('pointercancel', onPointerCancel, { signal: sig });
 }
 
 /** Enable drag-from-default-list into folders; tear down when the row is hidden (in a folder). */
@@ -2929,7 +2927,7 @@ function buildFolderNode(folder, allFolders, context) {
 
     // Folder-check only for source context (V17.3)
     const folderCheckHtml = context === 'source' 
-        ? `<span class="action-icon folder-check" title="Toggle Folder Items">${ICONS.checkOff}</span>`
+        ? `<span class="action-icon folder-check" title="Toggle Folder Item Selection">${ICONS.checkOff}</span>`
         : '';
     
     header.innerHTML = `

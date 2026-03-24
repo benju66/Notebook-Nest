@@ -1103,17 +1103,9 @@ body.plugin-focus-mode textarea {
     cursor: grabbing;
 }
 
-/* Visual grip for native rows (drag still works from whole row via pointer capture) */
-.plugin-detected-row .plugin-native-drag-handle {
-    flex-shrink: 0;
-    align-self: center;
-    position: relative;
-    z-index: 3;
-}
-
 /*
  * NotebookLM uses a full-row transparent button (e.g. .source-stretched-button) that
- * stacks above the row. Pointer-driven drag uses capture + threshold; during drag we
+ * stacks above the row. Drag starts after a movement threshold; during drag we
  * disable the overlay so hit-testing reaches folder headers.
  */
 body.plugin-drag-active .plugin-detected-row button.source-stretched-button,
