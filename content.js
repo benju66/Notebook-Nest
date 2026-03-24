@@ -171,7 +171,14 @@ let activeSelectors = JSON.parse(JSON.stringify(DEFAULT_SELECTORS));
 const DEFAULT_STATE = {
     source: { folders: {}, mappings: {}, pinned: [], tasks: [], taskSections: {} },
     studio: { folders: {}, mappings: {}, pinned: [] },
-    settings: { showGenerators: true, showResearch: true, focusMode: false, tasksOpen: true, completedOpen: false }
+    settings: {
+        showGenerators: true,
+        showResearch: true,
+        focusMode: false,
+        tasksOpen: true,
+        completedOpen: false,
+        autoCollapseGuide: true
+    }
 };
 
 let appState = JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -881,7 +888,8 @@ function init() {
                 }
                 
                 // Ensure all required properties exist
-                if (!appState.settings) appState.settings = { showGenerators: true, showResearch: true, focusMode: false, tasksOpen: true, completedOpen: false };
+                if (!appState.settings) appState.settings = { showGenerators: true, showResearch: true, focusMode: false, tasksOpen: true, completedOpen: false, autoCollapseGuide: true };
+                if (appState.settings.autoCollapseGuide === undefined) appState.settings.autoCollapseGuide = true;
                 if (!appState.source) appState.source = { folders: {}, mappings: {}, pinned: [], tasks: [] };
                 if (!appState.studio) appState.studio = { folders: {}, mappings: {}, pinned: [] };
                 if (!appState.source.pinned) appState.source.pinned = [];
@@ -1913,6 +1921,25 @@ function updateSearchStats(context) {
     }
 }
 
+function autoCollapseSourceGuide() {
+    try {
+        if (!appState.settings.autoCollapseGuide) return;
+
+        const guideBtn = document.querySelector('button.open-source-guide-button[aria-expanded="true"]');
+
+        if (guideBtn && !guideBtn.classList.contains('plugin-handled-collapse')) {
+            guideBtn.classList.add('plugin-handled-collapse');
+
+            const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+            guideBtn.dispatchEvent(clickEvent);
+
+            console.debug('[NotebookLM Tree] Auto-collapsed Source Guide');
+        }
+    } catch (e) {
+        console.debug('[NotebookLM Tree] Auto-collapse error:', e.message);
+    }
+}
+
 function startObserver() {
     try {
         const targetContainer = safeQuery(document, [
@@ -1931,6 +1958,8 @@ function startObserver() {
         
         mainObserver = new MutationObserver((mutations) => {
             try {
+                autoCollapseSourceGuide();
+
                 const isRelevant = mutations.some(m => {
                     if (!m.target) return false;
                     if (m.target.closest && m.target.closest('.plugin-container')) return false;
@@ -2135,6 +2164,19 @@ function injectContainer(anchorEl, context) {
             dedupeBtn.title = "Delete Duplicate Sources";
             dedupeBtn.onclick = () => removeDuplicateSources();
             controls.appendChild(dedupeBtn);
+
+            const toggleGuideBtn = document.createElement('button');
+            toggleGuideBtn.className = `plugin-btn secondary ${!appState.settings.autoCollapseGuide ? 'toggle-off' : ''}`;
+            toggleGuideBtn.innerHTML = ICONS.warning;
+            toggleGuideBtn.title = appState.settings.autoCollapseGuide ? "Auto-Collapse Guide: ON" : "Auto-Collapse Guide: OFF";
+            toggleGuideBtn.onclick = () => {
+                appState.settings.autoCollapseGuide = !appState.settings.autoCollapseGuide;
+                saveState();
+                toggleGuideBtn.classList.toggle('toggle-off', !appState.settings.autoCollapseGuide);
+                toggleGuideBtn.title = appState.settings.autoCollapseGuide ? "Auto-Collapse Guide: ON" : "Auto-Collapse Guide: OFF";
+                showToast(appState.settings.autoCollapseGuide ? "Guide will auto-collapse" : "Guide will stay open");
+            };
+            controls.appendChild(toggleGuideBtn);
             // -------------------------------
             
             const taskSection = document.createElement('div');
