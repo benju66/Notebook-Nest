@@ -2921,7 +2921,13 @@ function createProxyItem(nativeRow, text, context, isPinnedView) {
         const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
 
         if (context === 'source') {
-            nativeRow.dispatchEvent(clickEvent);
+            const nativeBtn = nativeRow.querySelector('button.source-stretched-button');
+            if (nativeBtn) {
+                nativeBtn.dispatchEvent(clickEvent);
+            } else {
+                // Fallback
+                nativeRow.dispatchEvent(clickEvent);
+            }
         } else {
             const nativeBtn = nativeRow.querySelector('button.artifact-stretched-button, .artifact-button-content button, button.artifact-item-button');
 
